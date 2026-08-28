@@ -1,0 +1,145 @@
+
+---
+
+# Код на 8 языках программирования
+
+## 1. Python (`planet_finder.py`)
+
+```python
+#!/usr/bin/env python3
+# planet_finder.py
+import argparse
+import json
+import math
+import sys
+from datetime import datetime, timedelta
+from colorama import init, Fore, Style
+
+init(autoreset=True)
+
+# Средние орбитальные элементы на эпоху J2000 (2000-01-01 12:00 TT)
+# L0 - средняя долгота (градусы), n - среднее суточное движение (градусы/день)
+PLANET_DATA = {
+    "Mercury": {"L0": 252.2509, "n": 4.09233445},
+    "Venus":   {"L0": 181.9798, "n": 1.60213043},
+    "Earth":   {"L0": 100.4664, "n": 0.98560911},
+    "Mars":    {"L0": 355.4530, "n": 0.52407178},
+    "Jupiter": {"L0": 34.3515,  "n": 0.08309125},
+    "Saturn":  {"L0": 50.0774,  "n": 0.03344482},
+    "Uranus":  {"L0": 314.0550, "n": 0.01172312},
+    "Neptune": {"L0": 304.3487, "n": 0.00597733},
+}
+# Наклон эклиптики
+OBLIQUITY = 23.4393  # градусы
+
+def ecliptic_to_equatorial(lon, lat=0, obl=OBLIQUITY):
+    """Преобразует эклиптические координаты (долгота, широта) в экваториальные (RA, Dec)."""
+    lon_rad = math.radians(lon)
+    lat_rad = math.radians(lat)
+    obl_rad = math.radians(obl)
+    # RA
+    ra = math.atan2(math.sin(lon_rad) * math.cos(obl_rad) - math.tan(lat_rad) * math.sin(obl_rad),
+                    math.cos(lon_rad))
+    # Dec
+    dec = math.asin(math.sin(lat_rad) * math.cos(obl_rad) + math.cos(lat_rad) * math.sin(obl_rad) * math.sin(lon_rad))
+    # Приводим RA к 0..360
+    ra = math.degrees(ra) % 360
+    dec = math.degrees(dec)
+    return ra, dec
+
+def ra_to_hms(ra_deg):
+    """Преобразует прямое восхождение (градусы) в часы, минуты, секунды."""
+    hours = ra_deg / 15.0
+    h = int(hours)
+    m = int((hours - h) * 60)
+    s = (hours - h - m/60) * 3600
+    return f"{h:02d}h {m:02d}m {s:05.2f}s"
+
+def dec_to_dms(dec_deg):
+    """Преобразует склонение (градусы) в градусы, минуты, секунды."""
+    sign = '+' if dec_deg >= 0 else '-'
+    dec_deg = abs(dec_deg)
+    d = int(dec_deg)
+    m = int((dec_deg - d) * 60)
+    s = (dec_deg - d - m/60) * 3600
+    return f"{sign}{d:02d}° {m:02d}' {s:05.2f}\""
+
+def compute_planet_position(date, planet):
+    """Вычисляет экваториальные координаты планеты на заданную дату."""
+    # Преобразуем дату в дни от J2000 (2000-01-01 12:00 TT)
+    # Для простоты используем приближение: считаем, что 2000-01-01 12:00 TT = datetime(2000,1,1,12,0)
+    j2000 = datetime(2000, 1, 1, 12, 0)
+    delta = (date - j2000).total_seconds() / 86400.0
+    data = PLANET_DATA[planet]
+    L0 = data["L0"]
+    n = data["n"]
+    # Эклиптическая долгота (широта считается 0)
+    lon = (L0 + n * delta) % 360
+    # Преобразуем в экваториальные
+    ra, dec = ecliptic_to_equatorial(lon)
+    return ra, dec
+
+def get_constellation(ra, dec):
+    """Упрощённое определение созвездия (для демонстрации)."""
+    # Для простоты возвращаем "Unknown"
+    return "Unknown"
+
+def main():
+    parser = argparse.ArgumentParser(description="Карта звездного неба - поиск планет")
+    parser.add_argument("--date", help="Дата (YYYY-MM-DD)")
+    parser.add_argument("--planet", help="Название планеты (Mercury, Venus, etc.)")
+    parser.add_argument("--list", action="store_true", help="Показать все планеты")
+    parser.add_argument("--export-json", help="Экспорт в JSON")
+    parser.add_argument("--export-csv", help="Экспорт в CSV")
+    args = parser.parse_args()
+
+    if args.date:
+        try:
+            date = datetime.strptime(args.date, "%Y-%m-%d")
+        except ValueError:
+            print(Fore.RED + "Неверный формат даты. Используйте YYYY-MM-DD")
+            sys.exit(1)
+    else:
+        date = datetime.now()
+
+    if args.planet:
+        if args.planet not in PLANET_DATA:
+            print(Fore.RED + f"Планета '{args.planet}' не найдена.")
+            sys.exit(1)
+        planets = [args.planet]
+    else:
+        planets = list(PLANET_DATA.keys())
+
+    results = []
+    for p in planets:
+        ra, dec = compute_planet_position(date, p)
+        results.append({
+            "planet": p,
+            "ra_deg": ra,
+            "dec_deg": dec,
+            "ra": ra_to_hms(ra),
+            "dec": dec_to_dms(dec)
+        })
+
+    if args.export_json:
+        with open(args.export_json, 'w') as f:
+            json.dump(results, f, indent=2)
+        print(Fore.GREEN + f"Экспортировано в {args.export_json} (JSON)")
+    elif args.export_csv:
+        import csv
+        with open(args.export_csv, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(["planet", "ra_deg", "dec_deg", "ra_hms", "dec_dms"])
+            for r in results:
+                writer.writerow([r["planet"], r["ra_deg"], r["dec_deg"], r["ra"], r["dec"]])
+        print(Fore.GREEN + f"Экспортировано в {args.export_csv} (CSV)")
+    else:
+        print(Fore.CYAN + f"Положение планет на {date.strftime('%Y-%m-%d')}:\n")
+        for r in results:
+            print(Fore.YELLOW + f"{r['planet']}:")
+            print(f"  RA  = {r['ra']}  ({r['ra_deg']:.2f}°)")
+            print(f"  Dec = {r['dec']}  ({r['dec_deg']:.2f}°)")
+            print()
+
+if __name__ == "__main__":
+    main()
